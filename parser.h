@@ -60,8 +60,14 @@ static void parseError(MadaParser* self, MadaToken token, TokenType expected)
         msg = self->lexer.str_toktype[token.type];
     }
 
-    printf("SyntaxError[%d]: se esperaba \"%s\" en lugar de \"%s\"\n", token.line_num, str_tok[expected], msg);
+    fprintf(stderr, "SyntaxError[%d][%d]: se esperaba \"%s\" en lugar de \"%s\"\n", token.line_num, token.col_num, str_tok[expected], msg);
     exit(UNEXPECTED_TOKEN_ERR);
+}
+
+static void exprError(MadaParser* self, MadaToken token)
+{
+    fprintf(stderr, "SyntaxError[%d][%d]: Expresion incompleta\n", token.line_num, token.col_num);
+    exit(-1);
 }
 
 static void match(MadaParser* self, TokenType expected_type)
@@ -140,7 +146,12 @@ static Ast* primary(MadaParser* self)
             //destroyMadaToken(&token_aux);
 
             break;
+        case T_EOL:
+        case T_EOF:
+            exprError(self, self->lexer.current_token);
+            break;
         default:
+            exprError(self, self->lexer.current_token);
             break;
 
     }
