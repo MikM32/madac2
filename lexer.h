@@ -9,6 +9,7 @@
 #define MAX_BUFFER 1024
 
 
+
 char str_tok[30][30];
 
 typedef struct st_lexer
@@ -20,7 +21,7 @@ typedef struct st_lexer
     void (*loadSource)(struct st_lexer*, char* source);
 
     char* source, *cur_source;   //Fuente
-    char str_toktype[30][30];
+    //char str_toktype[30][30];
     int line_count;
     int col_count;
     int eol_flag;
@@ -51,14 +52,18 @@ void initMadaLexer(MadaLexer* self)
     strcpy(str_tok[T_EOL], "Salto de Linea");
     strcpy(str_tok[T_ID], "Identificador");
     strcpy(str_tok[T_INTEGER], "Numero Entero");
+    strcpy(str_tok[T_BOOL], "Valor logico");
     strcpy(str_tok[T_PLUS], "+");
     strcpy(str_tok[T_MINUS], "-");
     strcpy(str_tok[T_MUL], "*");
     strcpy(str_tok[T_DIV], "/");
+    strcpy(str_tok[T_COLON], ":");
     strcpy(str_tok[T_EOF], "Fin de archivo");
     strcpy(str_tok[T_CPAREN], ")");
+    strcpy(str_tok[T_OPAREN], "(");
+    strcpy(str_tok[T_ALG], "algoritmo");
 
-    memcpy(self->str_toktype, str_tok, 30*4);
+    //memcpy(self->str_toktype, str_tok, 30*4);
 
 }
 
@@ -111,10 +116,35 @@ static TokenType isKeyword(char* word)
     {
         return T_ALG;
     }
+    else if(!strcmp(word, "entero"))
+    {
+        return T_INT_TYPE;
+    }
+    else if(!strcmp(word, "var"))
+    {
+        return T_VAR;
+    }
+    else if(!strcmp(word, "inicio"))
+    {
+        return T_BEGIN;
+    }
+    else if(!strcmp(word, "fin"))
+    {
+        return T_END;
+    }
+    else if(!strcmp(word, "real"))
+    {
+        return T_REAL_TYPE;
+    }
+    else if(!strcmp(word, "escribir"))
+    {
+        return T_WRITE;
+    }
 
     return T_NONE;
 }
 
+/*
 static void appendBuffer(char* buffer, char* text)
 {
     int buffer_len = strlen(buffer);
@@ -124,9 +154,16 @@ static void appendBuffer(char* buffer, char* text)
     {
         strncat(buffer, text, text_len);
     }
+}*/
+
+static void invalidCharError(MadaLexer* self, char invalid)
+{
+    fprintf(stderr, "MadaLexer| InvalidCharError: El caracter \'%c\' es invalido.\n", invalid);
+    exit(-1);
 }
 
 //Funcion que itera el codigo fuente y va obteniendo cada token hasta llegar al final del archivo (EOF)
+
 static void next(MadaLexer* self)
 {
     if(self->source == NULL)
@@ -150,7 +187,7 @@ static void next(MadaLexer* self)
             if(self->eol_flag) initMadaToken(&self->current_token, T_EOL, NULL, self->cur_source, self->line_count, self->col_count);
 
             self->line_count++;
-            self->col_count=0;
+            self->col_count=1;
 
             self->cur_source++;
             self->eol_flag=0;
@@ -166,7 +203,7 @@ static void next(MadaLexer* self)
 
             while(isAlpha(*self->cur_source) || isNum(*self->cur_source))
             {
-                buffer[i] = *self->cur_source;
+                buffer[i] = *self->cur_source; //Posible bug (si el identificador sobrepasa los 255 caracteres no se maneja excepcion alguna)
                 i++;
                 self->cur_source++;
                 self->col_count++;
@@ -194,7 +231,7 @@ static void next(MadaLexer* self)
 
             while(isNum(*self->cur_source))
             {
-                buffer[i] = *self->cur_source;
+                buffer[i] = *self->cur_source; //Posible bug (si el identificador sobrepasa los 255 caracteres no se maneja excepcion alguna)
                 i++;
                 self->cur_source++;
                 self->col_count++;
@@ -232,9 +269,19 @@ static void next(MadaLexer* self)
         }
         else if(*self->cur_source == '-')
         {
-            initMadaToken(&self->current_token, T_MINUS, NULL, self->cur_source, self->line_count, self->col_count);
-            self->cur_source++;
-            self->col_count++;
+            if(*(self->cur_source+1) == '>')
+            {
+                initMadaToken(&self->current_token, T_ASSIGN, NULL, self->cur_source, self->line_count, self->col_count);
+                self->cur_source+=2;
+                self->col_count+=2;
+            }
+            else
+            {
+                initMadaToken(&self->current_token, T_MINUS, NULL, self->cur_source, self->line_count, self->col_count);
+                self->cur_source++;
+                self->col_count++;
+            }
+
             self->eol_flag=1;
         }
         else if(*self->cur_source == '*')
@@ -242,6 +289,54 @@ static void next(MadaLexer* self)
             initMadaToken(&self->current_token, T_MUL, NULL, self->cur_source, self->line_count, self->col_count);
             self->cur_source++;
             self->col_count++;
+            self->eol_flag=1;
+        }
+        else if(*self->cur_source == '/')
+        {
+            initMadaToken(&self->current_token, T_DIV, NULL, self->cur_source, self->line_count, self->col_count);
+            self->cur_source++;
+            self->col_count++;
+            self->eol_flag=1;
+        }
+        else if(*self->cur_source == '=')
+        {
+            initMadaToken(&self->current_token, T_EQU, NULL, self->cur_source, self->line_count, self->col_count);
+            self->cur_source++;
+            self->col_count++;
+            self->eol_flag=1;
+        }
+        else if(*self->cur_source == '<')
+        {
+            if(*(self->cur_source+1) == '=' )
+            {
+                initMadaToken(&self->current_token, T_LESS_EQ, NULL, self->cur_source, self->line_count, self->col_count);
+                self->cur_source+=2;
+                self->col_count+=2;
+            }
+            else
+            {
+                initMadaToken(&self->current_token, T_LESS, NULL, self->cur_source, self->line_count, self->col_count);
+                self->cur_source++;
+                self->col_count++;
+            }
+
+            self->eol_flag=1;
+        }
+        else if(*self->cur_source == '>')
+        {
+            if(*(self->cur_source+1) == '=' )
+            {
+                initMadaToken(&self->current_token, T_BIGGER_EQ, NULL, self->cur_source, self->line_count, self->col_count);
+                self->cur_source+=2;
+                self->col_count+=2;
+            }
+            else
+            {
+                initMadaToken(&self->current_token, T_BIGGER, NULL, self->cur_source, self->line_count, self->col_count);
+                self->cur_source++;
+                self->col_count++;
+            }
+
             self->eol_flag=1;
         }
         else if(*self->cur_source == '(')
@@ -258,6 +353,33 @@ static void next(MadaLexer* self)
             self->col_count++;
             self->eol_flag=1;
         }
+        else if(*self->cur_source == ':')
+        {
+            initMadaToken(&self->current_token, T_COLON, NULL, self->cur_source, self->line_count, self->col_count);
+            self->cur_source++;
+            self->col_count++;
+            self->eol_flag=1;
+        }
+        else if(*self->cur_source == '"')
+        {
+            int col = self->col_count;
+            self->cur_source++;
+            self->col_count++;
+
+            char* str_source = self->cur_source;
+            //int i=0;
+
+            while(*self->cur_source != '"' || *self->cur_source != '\0')
+            {
+                self->cur_source++;
+                self->col_count++;
+            }
+
+            initMadaToken(&self->current_token, T_CPAREN, str_source, str_source, self->line_count, col);
+            self->cur_source++;
+            self->col_count++;
+            self->eol_flag=1;
+        }
         else if(*self->cur_source == '\0')
         {
             initMadaToken(&self->current_token, T_EOF, NULL, self->cur_source, self->line_count, self->col_count);
@@ -265,7 +387,7 @@ static void next(MadaLexer* self)
         }
         else // Caracter no soportado. Ejem: ñ
         {
-            // ERROR LEXICO
+            invalidCharError(self, *self->cur_source);
         }
 
     }

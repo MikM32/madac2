@@ -1,6 +1,7 @@
 #ifndef AST_H_INCLUDED
 #define AST_H_INCLUDED
 
+#include "linked_list.h"
 
 enum ast_tag
 {
@@ -11,6 +12,10 @@ enum ast_tag
     AST_VAR,
     AST_UNOP,
     AST_BINOP,
+    AST_VARDECL,
+    AST_VARBLOCK,
+    AST_VARASSIGN,
+    AST_COMPOUND_STMT,
     AST_ALG,
 
 };
@@ -26,11 +31,19 @@ typedef struct st_ast
 
     union
     {
+        //Expresiones
         struct AST_INTEGER{ int int_value; } AST_INTEGER;
         struct AST_REAL{ float flt_value; } AST_REAL;
         struct AST_VAR{ char* varname; } AST_VAR;
         struct AST_UNOP{ struct st_ast* right; TokenType op;} AST_UNOP;
         struct AST_BINOP{ struct st_ast* left, *right; TokenType op;} AST_BINOP;
+
+        //Statements (sentencias)
+        struct AST_VARDECL{ char* varname; MadaToken type;} AST_VARDECL;
+        struct AST_VARBLOCK{ List vardecls; } AST_VARBLOCK;
+        struct AST_VARASSIGN{ char* varname;  struct st_ast* value_ast} AST_VARASSIGN;
+        struct AST_COMPOUND_STMT{ List statements; } AST_COMPOUND_STMT;
+        struct AST_ALG{ struct st_ast* varblock; struct st_ast* compound_stmts; } AST_ALG;
     };
 
 } Ast; // Abstract Syntax Tree
@@ -160,6 +173,60 @@ Ast* astBinop(Ast* left, MadaToken token, Ast* right)
     strncat(ast_node->lexem, right->lexem, rightSize);
     strncat(ast_node->lexem, ")", 2);*/
 
+
+    return ast_node;
+}
+
+Ast* astVarDecl(MadaToken var_token, MadaToken type_token)
+{
+    Ast* ast_node = malloc(sizeof(Ast));
+
+    ast_node->tag = AST_VARDECL;
+    ast_node->AST_VARDECL.varname = var_token.val;
+
+    ast_node->AST_VARDECL.type = type_token;
+
+    return ast_node;
+}
+
+Ast* astVarBlock(List vardecls)
+{
+    Ast* ast_node = malloc(sizeof(Ast));
+
+    ast_node->tag = AST_VARBLOCK;
+    ast_node->AST_VARBLOCK.vardecls = vardecls;
+
+    return ast_node;
+}
+
+Ast* astVarAssign(MadaToken id_token, Ast* value_ast)
+{
+     Ast* ast_node = malloc(sizeof(Ast));
+     ast_node->tag = AST_VARASSIGN;
+
+     ast_node->AST_VARASSIGN.varname = id_token.val;
+     ast_node->AST_VARASSIGN.value_ast = value_ast;
+
+     return ast_node;
+}
+
+Ast* astCompoundStmt(List statements)
+{
+    Ast* ast_node = malloc(sizeof(Ast));
+    ast_node->tag = AST_COMPOUND_STMT;
+
+    ast_node->AST_COMPOUND_STMT.statements = statements;
+
+    return ast_node;
+}
+
+Ast* astAlgorithm(Ast* varblock, Ast* compound_stmts)
+{
+    Ast* ast_node = malloc(sizeof(Ast));
+    ast_node->tag = AST_ALG;
+
+    ast_node->AST_ALG.varblock = varblock;
+    ast_node->AST_ALG.compound_stmts = compound_stmts;
 
     return ast_node;
 }

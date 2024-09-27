@@ -21,7 +21,9 @@ typedef struct st_parser
     Ast* (*unary)(struct st_parser*);
     Ast* (*factor)(struct st_parser*);
     Ast* (*term)(struct st_parser*);
+    Ast* (*comparison)(struct st_parser*);
     Ast* (*expression)(struct st_parser*);
+    Ast* (*vardecl)(struct st_parser*);
 
 } MadaParser;
 
@@ -32,6 +34,8 @@ static Ast* primary(MadaParser* self);
 static Ast* unary(MadaParser* self);
 static Ast* factor(MadaParser* self);
 static Ast* term(MadaParser* self);
+static Ast* comparison(MadaParser* self);
+static Ast* vardecl(MadaParser* self);
 
 static void parse(MadaParser* self);
 
@@ -42,6 +46,8 @@ void initMadaParser(MadaParser* self)
     self->unary = unary;
     self->factor = factor;
     self->term = term;
+    self->comparison = comparison;
+    self->vardecl = vardecl;
     self->parse = parse;
     self->parseError = parseError;
     self->ast = NULL;
@@ -57,7 +63,7 @@ static void parseError(MadaParser* self, MadaToken token, TokenType expected)
     }
     else
     {
-        msg = self->lexer.str_toktype[token.type];
+        msg = str_tok[token.type];
     }
 
     fprintf(stderr, "SyntaxError[%d][%d]: se esperaba \"%s\" en lugar de \"%s\"\n", token.line_num, token.col_num, str_tok[expected], msg);
@@ -136,6 +142,8 @@ static Ast* primary(MadaParser* self)
 
             token_aux = self->lexer.current_token;
             self->lexer.next(&self->lexer);
+
+            // Llamadas a funciones (SOLO FUNCIONES YA QUE SE USAN EN EXPRESIONES AL RETORNAR UN VALOR)
             /*
             if(self->lexer.current_token.type = T_OPAREN)
             {
@@ -210,10 +218,184 @@ static Ast* term(MadaParser* self)
     return ast_node;
 }
 
+static Ast* comparison(MadaParser* self)
+{
+    Ast* ast_node = self->term(self);
+
+    if(self->lexer.current_token.type == T_LESS || self->lexer.current_token.type == T_LESS_EQ
+       || self->lexer.current_token.type == T_BIGGER || self->lexer.current_token.type == T_BIGGER_EQ)
+    {
+        MadaToken curToken = self->lexer.current_token;
+        self->lexer.next(&self->lexer);
+
+        ast_node = astBinop(ast_node, curToken, self->comparison(self));
+    }
+
+    return ast_node;
+}
+
+static Ast* vardecl(MadaParser* self)
+{
+    Ast* ast_node = NULL;
+
+    self->match(self, T_ID);
+
+    MadaToken var_token = self->lexer.current_token;
+    self->lexer.next(&self->lexer);
+
+    self->match(self, T_COLON);
+
+    self->lexer.next(&self->lexer);
+
+    if(self->lexer.current_token.type == T_INT_TYPE || self->lexer.current_token.type == T_REAL_TYPE
+        || self->lexer.current_token.type == T_ID)
+    {
+        ast_node = astVarDecl(var_token, self->lexer.current_token);
+
+        self->lexer.next(&self->lexer);
+        self->match(self, T_EOL);
+        self->lexer.next(&self->lexer);
+    }
+    else
+    {
+        exit(-10);
+    }
+
+    return ast_node;
+}
+
+static Ast* varblock(MadaParser* self)
+{
+    Ast* ast_node = NULL;
+    List vardecls;
+
+    initLinkedList(&vardecls, 0);
+
+    self->match(self, T_EOL);
+    self->lexer.next(&self->lexer);
+
+    self->match(self, T_VAR);
+    self->lexer.next(&self->lexer);
+    self->match(self, T_EOL);
+    self->lexer.next(&self->lexer);
+
+    while(self->lexer.current_token.type != T_BEGIN && self->lexer.current_token.type != T_EOF)
+    {
+        appendLinkedList(&vardecls, self->vardecl(self));
+        // Continuar aqui
+    }
+
+    if(self->lexer.current_token.type == T_EOF)
+    {
+        exit(-1);
+        //error
+    }
+
+    ast_node = astVarBlock(vardecls);
+
+    return ast_node;
+}
+
+                                        // Se agrega un parametro adicional para poder construir el objeto Ast con su token de id
+static Ast* var_assign(MadaParser* self, MadaToken id_token)
+{
+    Ast* ast_node = NULL;
+
+    self->match(self, T_ASSIGN);
+    self->lexer.next(&self->lexer);
+
+    ast_node = astVarAssign(id_token, self->comparison(self));
+
+    return ast_node;
+}
+
+static Ast* statement(MadaParser* self)
+{
+    Ast* ast_node = NULL;
+    MadaToken token_aux;
+
+
+    switch(self->lexer.current_token.type)
+    {
+        case T_ID:
+            token_aux = self->lexer.current_token;
+            self->lexer.next(&self->lexer);
+
+            if(self->lexer.current_token.type == T_ASSIGN) // Asignacion a variables
+            {
+                ast_node = var_assign(self, token_aux);
+            }
+            else if(self->lexer.current_token.type == T_OPAREN) // LLamadas a funciones o procedimientos
+            {
+                //no implementado aun
+            }
+
+            break;
+        default:
+            break;
+    }
+
+    return ast_node;
+}
+
+static Ast* compound_statement(MadaParser* self)
+{
+    Ast* ast_node = NULL;
+    Ast* ast_acum = NULL;
+    List statements;
+
+    self->match(self, T_BEGIN);
+    self->lexer.next(&self->lexer);
+
+    self->match(self, T_EOL);
+    self->lexer.next(&self->lexer);
+
+    initLinkedList(&statements, 0);
+
+    while(self->lexer.current_token.type != T_END && self->lexer.current_token.type != T_EOF)
+    {
+        ast_acum = statement(self);
+        if(ast_acum) appendLinkedList(&statements, ast_acum);
+
+        self->lexer.next(&self->lexer);
+    }
+
+    if(self->lexer.current_token.type == T_EOF)
+    {
+        exit(-1);
+        //error
+    }
+
+    ast_node = astCompoundStmt(statements);
+
+    return ast_node;
+}
+
+static Ast* algorithm(MadaParser* self)
+{
+    Ast* ast_node = NULL;
+    Ast* varblock_node = NULL;
+    Ast* compound_stmts_node = NULL;
+
+    self->match(self, T_ALG);
+
+    self->lexer.next(&self->lexer);
+
+    self->match(self, T_ID);
+    self->lexer.next(&self->lexer);
+
+    varblock_node = varblock(self);
+    compound_stmts_node = compound_statement(self);
+
+    ast_node = astAlgorithm(varblock_node, compound_stmts_node);
+
+    return ast_node;
+}
+
 static void parse(MadaParser* self)
 {
     self->lexer.next(&self->lexer);
-    self->ast = self->term(self);
+    self->ast = algorithm(self);
 }
 
 #endif // PARSER_H_INCLUDED
