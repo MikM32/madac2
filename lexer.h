@@ -10,7 +10,7 @@
 
 
 
-char str_tok[30][30];
+char str_tok[50][30];
 
 typedef struct st_lexer
 {
@@ -26,6 +26,7 @@ typedef struct st_lexer
     int col_count;
     int eol_flag;
     MadaToken current_token;
+    MadaToken previous_token;
 
 
 } MadaLexer;
@@ -45,6 +46,7 @@ void initMadaLexer(MadaLexer* self)
     self->source = NULL; // puntero original
     self->cur_source = NULL; // puntero sobre la cual se itera
     self->current_token.type = T_NONE;
+    self->previous_token.type = T_NONE;
     self->line_count = self->col_count = 1;
     self->eol_flag = 0;
 
@@ -61,6 +63,7 @@ void initMadaLexer(MadaLexer* self)
     strcpy(str_tok[T_EOF], "Fin de archivo");
     strcpy(str_tok[T_CPAREN], ")");
     strcpy(str_tok[T_OPAREN], "(");
+    strcpy(str_tok[T_FPARA], "fpara");
     strcpy(str_tok[T_ALG], "algoritmo");
 
     //memcpy(self->str_toktype, str_tok, 30*4);
@@ -124,6 +127,22 @@ static TokenType isKeyword(char* word)
     {
         return T_VAR;
     }
+    else if(!strcmp(word, "para"))
+    {
+        return T_PARA;
+    }
+    else if(!strcmp(word, "hasta"))
+    {
+        return T_HASTA;
+    }
+    else if(!strcmp(word, "hacer"))
+    {
+        return T_HACER;
+    }
+    else if(!strcmp(word, "fpara"))
+    {
+        return T_FPARA;
+    }
     else if(!strcmp(word, "inicio"))
     {
         return T_BEGIN;
@@ -176,6 +195,8 @@ static void next(MadaLexer* self)
     self->current_token.type = T_NONE; // en este caso T_NONE sirve para indicar que se omitio un flujo de caracteres y se volvera a iterar
     while(self->current_token.type == T_NONE)
     {
+        self->previous_token = self->current_token;
+
         if(*self->cur_source == ' ')
         {
             self->cur_source++;
@@ -349,6 +370,13 @@ static void next(MadaLexer* self)
         else if(*self->cur_source == ')')
         {
             initMadaToken(&self->current_token, T_CPAREN, NULL, self->cur_source, self->line_count, self->col_count);
+            self->cur_source++;
+            self->col_count++;
+            self->eol_flag=1;
+        }
+        else if(*self->cur_source == ',')
+        {
+            initMadaToken(&self->current_token, T_COMMA, NULL, self->cur_source, self->line_count, self->col_count);
             self->cur_source++;
             self->col_count++;
             self->eol_flag=1;

@@ -8,6 +8,21 @@
 #define VOIDTOKEN_ERR 9
 #define UNEXPECTED_TOKEN_ERR 8
 
+typedef enum
+{
+    PREC_NONE,
+    PREC_ASSIGNMENT,  // =
+    PREC_OR,          // or
+    PREC_AND,         // and
+    PREC_EQUALITY,    // == !=
+    PREC_COMPARISON,  // < > <= >=
+    PREC_TERM,        // + -
+    PREC_FACTOR,      // * /
+    PREC_UNARY,       // ! -
+    PREC_CALL,        // . ()
+    PREC_PRIMARY
+}Precedence;
+
 typedef struct st_parser
 {
     MadaLexer lexer;
@@ -27,6 +42,15 @@ typedef struct st_parser
 
 } MadaParser;
 
+typedef Ast* (*ParseFn)(MadaParser*);
+
+typedef struct st_parse_rule
+{
+    ParseFn prefix;
+    ParseFn infix;
+    Precedence precedence;
+}ParseRule;
+
 static void match(MadaParser* self, TokenType expected_type);
 static void parseError(MadaParser* self, MadaToken token, TokenType expected);
 
@@ -36,6 +60,8 @@ static Ast* factor(MadaParser* self);
 static Ast* term(MadaParser* self);
 static Ast* comparison(MadaParser* self);
 static Ast* vardecl(MadaParser* self);
+static Ast* compound_statement(MadaParser* self);
+static Ast* codeblock(MadaParser* self);
 
 static void parse(MadaParser* self);
 
@@ -98,6 +124,7 @@ static void match(MadaParser* self, TokenType expected_type)
 
 }
 
+
 static Ast* primary(MadaParser* self)
 {
     Ast* ast_node=NULL;
@@ -110,10 +137,15 @@ static Ast* primary(MadaParser* self)
 
             self->lexer.next(&self->lexer);
 
-            ast_node = self->term(self);
+            ast_node = self->comparison(self);
             self->match(self, T_CPAREN);
 
             self->lexer.next(&self->lexer);
+
+            break;
+        case T_CPAREN:
+
+            self->match(self, T_OPAREN);
 
             break;
 
@@ -154,7 +186,7 @@ static Ast* primary(MadaParser* self)
             //destroyMadaToken(&token_aux);
 
             break;
-        case T_EOL:
+        //case T_EOL:
         case T_EOF:
             exprError(self, self->lexer.current_token);
             break;
@@ -309,6 +341,50 @@ static Ast* var_assign(MadaParser* self, MadaToken id_token)
     return ast_node;
 }
 
+static Ast* for_until(MadaParser* self)
+{
+    Ast* ast_node = NULL;
+    Ast* iterator = NULL;
+    Ast* expr = NULL;
+    Ast* stms = NULL;
+
+    //self->lexer.next(&self->lexer);
+
+    self->match(self, T_ID);
+    self->lexer.next(&self->lexer);
+
+    if(self->lexer.current_token.type == T_ASSIGN)
+    {
+        iterator = var_assign(self, self->lexer.previous_token);
+    }
+    else
+    {
+        iterator = astVar(self->lexer.previous_token);
+    }
+
+    self->match(self, T_HASTA);
+    self->lexer.next(&self->lexer);
+
+    expr = comparison(self);
+
+    // para - hasta cuerpo
+    self->match(self, T_HACER);
+    self->lexer.next(&self->lexer);
+
+    self->match(self, T_EOL);
+    self->lexer.next(&self->lexer);
+
+    stms = compound_statement(self);
+    //self->lexer.next(&self->lexer);
+
+    self->match(self, T_FPARA);
+    self->lexer.next(&self->lexer);
+
+    ast_node = astForUntil(iterator, expr, stms);
+
+    return ast_node;
+}
+
 static Ast* statement(MadaParser* self)
 {
     Ast* ast_node = NULL;
@@ -331,6 +407,13 @@ static Ast* statement(MadaParser* self)
             }
 
             break;
+        case T_PARA:
+            token_aux = self->lexer.current_token;
+            self->lexer.next(&self->lexer);
+
+            ast_node = for_until(self);
+
+            break;
         default:
             break;
     }
@@ -341,29 +424,26 @@ static Ast* statement(MadaParser* self)
 static Ast* compound_statement(MadaParser* self)
 {
     Ast* ast_node = NULL;
-    Ast* ast_acum = NULL;
+
+    Ast* ast_acum = statement(self);
     List statements;
-
-    self->match(self, T_BEGIN);
-    self->lexer.next(&self->lexer);
-
-    self->match(self, T_EOL);
-    self->lexer.next(&self->lexer);
 
     initLinkedList(&statements, 0);
 
-    while(self->lexer.current_token.type != T_END && self->lexer.current_token.type != T_EOF)
+    while(ast_acum)
     {
-        ast_acum = statement(self);
+        //ast_acum = statement(self);
+
+        if(self->lexer.current_token.type != T_COMMA)
+        {
+            self->match(self, T_EOL); // si no hay una coma debe haber un salto de linea despues de cada statement
+        }
+
         if(ast_acum) appendLinkedList(&statements, ast_acum);
 
         self->lexer.next(&self->lexer);
-    }
 
-    if(self->lexer.current_token.type == T_EOF)
-    {
-        exit(-1);
-        //error
+        ast_acum = statement(self);
     }
 
     ast_node = astCompoundStmt(statements);
@@ -371,11 +451,35 @@ static Ast* compound_statement(MadaParser* self)
     return ast_node;
 }
 
+static Ast* codeblock(MadaParser* self)
+{
+    Ast* ast_node = NULL;
+    Ast* compound_stmt = NULL;
+
+    self->match(self, T_BEGIN);
+    self->lexer.next(&self->lexer);
+
+    self->match(self, T_EOL);
+    self->lexer.next(&self->lexer);
+
+
+    compound_stmt = compound_statement(self);
+
+    self->match(self, T_END);
+    self->lexer.next(&self->lexer);
+
+    ast_node = astCodeBlock(compound_stmt);
+
+    return ast_node;
+}
+
+
+
 static Ast* algorithm(MadaParser* self)
 {
     Ast* ast_node = NULL;
     Ast* varblock_node = NULL;
-    Ast* compound_stmts_node = NULL;
+    Ast* codeblock_node = NULL;
 
     self->match(self, T_ALG);
 
@@ -385,9 +489,9 @@ static Ast* algorithm(MadaParser* self)
     self->lexer.next(&self->lexer);
 
     varblock_node = varblock(self);
-    compound_stmts_node = compound_statement(self);
+    codeblock_node = codeblock(self);
 
-    ast_node = astAlgorithm(varblock_node, compound_stmts_node);
+    ast_node = astAlgorithm(varblock_node, codeblock_node);
 
     return ast_node;
 }

@@ -76,7 +76,7 @@ uint8_t _setHashmap(Hashmap* hm, char* key, void* value, short dup_key)
     while(hm->buckets[index].key != NULL)
     {
         key_acum = hm->buckets[index].key;
-        if(!strncmp(key_acum, key, key_len))
+        if(!strcmp(key_acum, key))
         {
             hm->buckets[index].value = value;
 
@@ -140,7 +140,7 @@ void* getHashmap(Hashmap* hm, char* key)
     while(hm->buckets[index].key != NULL)
     {
         key_acum = hm->buckets[index].key;
-        if(!strncmp(key_acum, key, key_len))
+        if(!strcmp(key_acum, key))
         {
             return hm->buckets[index].value;
         }

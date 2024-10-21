@@ -16,6 +16,13 @@ typedef struct st_list
     NodeList* first, *last;
 }List;
 
+typedef struct st_list_iterator
+{
+    List list;
+    NodeList* current_node;
+    void* current_value;
+}ListIterator;
+
 void initLinkedList(List* list, int destroy_values)
 {
     list->first = NULL;
@@ -25,12 +32,14 @@ void initLinkedList(List* list, int destroy_values)
     list->destroy_values = destroy_values;
 }
 
-void initNodeList(NodeList* new_node, void* value, NodeList* next)
+NodeList* newNodeList(void* value, NodeList* next)
 {
-    new_node = madaAlloc(new_node, sizeof(NodeList), 0);
+    NodeList* new_node = madaAlloc(new_node, sizeof(NodeList), 0);
 
     new_node->value = value;
     new_node->next = next;
+
+    return new_node;
 }
 
 void destroyNodeList(NodeList* node, int destroy_value)
@@ -62,8 +71,7 @@ void destroyLinkedList(List* list)
 void appendLinkedList(List* list, void* value)
 {
 
-    NodeList* new_node = NULL;
-    initNodeList(new_node, value, NULL);
+    NodeList* new_node = newNodeList(value, NULL);
 
     if(!list->size)
     {
@@ -95,6 +103,29 @@ void* dequeueList(List* list)
         list->size--;
 
         return value;
+    }
+
+    return NULL;
+}
+
+void initListIterator(ListIterator* it, List list)
+{
+    it->list = list;
+    it->current_node = list.first;
+    it->current_value = NULL;
+
+}
+
+void* iterateList(ListIterator* it)
+{
+    if(it->current_node)
+    {
+
+        it->current_value = it->current_node->value;
+        it->current_node = it->current_node->next;
+
+        return it->current_value;
+
     }
 
     return NULL;

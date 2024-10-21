@@ -19,7 +19,7 @@ typedef struct st_semantic
     void (*binOpMismatchError)(struct st_semantic*, char*, int, int);
     void (*undeclaredVarError)(struct st_semantic*, char*, int, int);
     AstTag (*checkBinop)(struct st_semantic*, Ast*);
-    AstTag (*checkVar)(struct st_semantic*, Ast*);
+    AstTag (*checkVar)(struct st_semantic*, Ast*, short, short*);
     AstTag (*checkExpr)(struct st_semantic*, Ast*);
     void (*analyze)(struct st_semantic*);
 
@@ -28,8 +28,11 @@ typedef struct st_semantic
 static void binOpMismatchError(MadaSemantic* self, char* expr, int line, int col);
 static void undeclaredVarError(MadaSemantic* self, char* var, int line, int col);
 static AstTag checkBinop(MadaSemantic* self, Ast* ast_binop);
-static AstTag checkVar(MadaSemantic* self, Ast* ast_var);
+static AstTag checkVar(MadaSemantic* self, Ast* ast_var, short, short*);
 static AstTag checkExpr(MadaSemantic* self, Ast* ast_expr);
+static AstTag checkStatement(MadaSemantic*, Ast*);
+static AstTag checkCompoundStmts(MadaSemantic*, Ast*);
+
 static void analyze(MadaSemantic* self);
 
 void initMadaSemantic(MadaSemantic* self)
@@ -97,6 +100,10 @@ static TokenType isAritmethicOp(TokenType op_type)
         case T_MINUS:
         case T_MUL:
         case T_DIV:
+        case T_LESS:
+        case T_BIGGER:
+        case T_LESS_EQ:
+        case T_BIGGER_EQ:
             return op_type;
             break;
         default:
@@ -105,34 +112,55 @@ static TokenType isAritmethicOp(TokenType op_type)
     return T_NONE;
 }
 
-static enum Opcode resolveOperator(TokenType op_type, int isFloat)
-{
-    switch(op_type)
-    {
-        case T_PLUS:
-            if(isFloat) return O_ADDF;
-            return O_ADD;
-            break;
-        case T_MINUS:
-            if(isFloat) return O_SUBF;
-            return O_SUB;
-            break;
-        case T_MUL:
-            if(isFloat) return O_MULF;
-            return O_MUL;
-            break;
-        case T_DIV:
-            if(isFloat) return O_DIVF;
-            return O_DIV;
-            break;
-        default:
-            break;
-    }
-    return O_NOP;
-}
+
 
 //Emisor de codigo maquina
 
+static AstTag checkType(MadaSemantic* self, Ast* ast_type)
+{
+
+}
+
+static AstTag checkVarDecl(MadaSemantic* self, Ast* ast_vardcl)
+{
+    char* varname = ast_vardcl->AST_VARDECL.varname;
+    char* typename = ast_vardcl->AST_VARDECL.type.val;
+
+    SymType type;
+
+    // Verifica si el nombre de la variable no coincide con el nombre del tipo
+    if(ast_vardcl->AST_VARDECL.type.type == T_ID) // Es un tipo definido por el usuario
+    {
+        if(!strcmp(varname, typename))
+        {
+            fprintf(stderr, "Error el nombre de la variable y el el nombre del tipo no deben coincidir.\n");
+            exit(-1);
+        }
+    }
+    else
+    {
+        switch(ast_vardcl->AST_VARDECL.type.type)
+        {
+            case T_REAL_TYPE:
+            case T_INT_TYPE:
+                type.nativeType = T_INT_TYPE;
+                type.size = 4; // 4 bytes
+                break;
+            default:
+                break;
+        }
+    }
+
+    SymVar* var = newSymVar(varname, type,self->symTab.vars.count, self->symTab.current_scope, 0);
+    setHashmap(&self->symTab.vars, varname, var, 0);
+
+    self->cpool.append(&self->cpool, O_ADDI);
+    self->cpool.append(&self->cpool, SP);
+    self->cpool.append32(&self->cpool, type.size);
+
+    // Verifica si la variable ya ha sido declarada antes
+    // Verifica si el tipo de la variable existe
+}
 
 static AstTag checkBinop(MadaSemantic* self, Ast* ast_binop)
 {
@@ -231,7 +259,7 @@ static AstTag checkUnop(MadaSemantic* self, Ast* ast_unop)
 
 }
 
-static AstTag checkVar(MadaSemantic* self, Ast* ast_var)
+static AstTag checkVar(MadaSemantic* self, Ast* ast_var, short return_ref, short* is_global)
 {
     char* var_name = ast_var->AST_VAR.varname;
     MadaToken token = ast_var->token;
@@ -241,6 +269,52 @@ static AstTag checkVar(MadaSemantic* self, Ast* ast_var)
     if(!var)
     {
         self->undeclaredVarError(self, var_name, token.line_num, token.col_num);
+    }
+
+
+    self->cpool.append(&self->cpool, O_LOAD);
+
+    if(is_global) *is_global = var->is_global;
+
+    Byte segment;
+
+    if(!var->is_global)
+    {
+        segment = SEG_STACK;
+    }
+    else
+    {
+        segment = SEG_MEMORY;
+    }
+
+    self->cpool.append(&self->cpool, FORMAT_MEM_MODE(segment, 1));
+
+    self->cpool.append(&self->cpool, R1);
+    self->cpool.append32(&self->cpool, var->id*4);
+
+    self->cpool.append(&self->cpool, O_PUSH);
+    self->cpool.append(&self->cpool, R1);
+
+
+    if(return_ref) // devuelve la referencia de la variable
+    {
+        self->cpool.append(&self->cpool, O_LI);
+        self->cpool.append(&self->cpool, R1);
+        self->cpool.append32(&self->cpool, var->id*4);
+        self->cpool.append(&self->cpool, O_PUSH);
+        self->cpool.append(&self->cpool, R1);
+    }
+
+    switch(var->type.nativeType)
+    {
+        case T_INT_TYPE:
+            return AST_INTEGER;
+            break;
+        case T_REAL_TYPE:
+            return AST_REAL;
+            break;
+        default:
+            break;
     }
 
     return AST_VAR;
@@ -281,7 +355,7 @@ static AstTag checkExpr(MadaSemantic* self, Ast* ast_expr)
             return ast_expr->tag;
             break;
         case AST_VAR:
-            return self->checkVar(self, ast_expr);
+            return self->checkVar(self, ast_expr, 0, NULL);
             break;
         default:
             break;
@@ -290,11 +364,229 @@ static AstTag checkExpr(MadaSemantic* self, Ast* ast_expr)
     return AST_NONE;
 }
 
+static AstTag checkVarAssign(MadaSemantic* self, Ast* ast_varassign, short push_var_ref, short* is_global)
+{
+    AstTag res = AST_NONE;
+
+    SymVar* var;
+
+    if(ast_varassign->AST_VARASSIGN.varname)
+    {
+        var = (SymVar*)getHashmap(&self->symTab.vars, ast_varassign->AST_VARASSIGN.varname);
+
+        if(!var) exit(-10);
+    }
+
+    res = checkExpr(self, ast_varassign->AST_VARASSIGN.value_ast);
+
+    self->cpool.append(&self->cpool, O_POP);
+    self->cpool.append(&self->cpool, R1);
+    self->cpool.append(&self->cpool, O_STOR);
+
+    if(is_global) *is_global = var->is_global;
+
+    Byte segment;
+
+    if(!var->is_global)
+    {
+        segment = SEG_STACK;
+    }
+    else
+    {
+        segment = SEG_MEMORY;
+    }
+
+    self->cpool.append(&self->cpool, FORMAT_MEM_MODE(segment, 1));
+
+    self->cpool.append(&self->cpool, R1);
+    self->cpool.append32(&self->cpool, var->id*4);
+
+    self->cpool.append(&self->cpool, O_PUSH);
+    self->cpool.append(&self->cpool, R1);
+
+    if(push_var_ref)
+    {
+        self->cpool.append(&self->cpool, O_LI);
+        self->cpool.append(&self->cpool, R1);
+        self->cpool.append32(&self->cpool, var->id*4);
+        self->cpool.append(&self->cpool, O_PUSH);
+        self->cpool.append(&self->cpool, R1);
+    }
+
+    return res;
+
+}
+
+static AstTag checkForUntil(MadaSemantic* self, Ast* ast_foruntil)
+{
+    AstTag res = AST_NONE;
+    Dword loop_addr;
+    Dword cmp_addr=0;
+    Dword end_loop_addr=0;
+    short is_global;
+
+    if(ast_foruntil->AST_FORUNTIL.iterator->tag == AST_VAR)
+    {
+        res = checkVar(self, ast_foruntil->AST_FORUNTIL.iterator, 1, &is_global);
+    }
+    else
+    {
+        res = checkVarAssign(self, ast_foruntil->AST_FORUNTIL.iterator, 1, &is_global);
+    }
+
+    // referencia al iterador en memoria
+    self->cpool.append(&self->cpool, O_POP);
+    self->cpool.append(&self->cpool, R6);
+
+    // valor del iterador
+    self->cpool.append(&self->cpool, O_POP);
+    self->cpool.append(&self->cpool, R5);
+
+    // Guardar direccion de cpool aqui para hacer jump
+    loop_addr = self->cpool.count;
+
+    self->cpool.append(&self->cpool, O_LOAD);
+
+    Byte segment = (is_global) ? SEG_MEMORY: SEG_STACK;
+
+    self->cpool.append(&self->cpool, FORMAT_MEM_MODE(segment, 0));
+    self->cpool.append(&self->cpool, R5);
+    self->cpool.append(&self->cpool, R6);
+
+    res = checkExpr(self, ast_foruntil->AST_FORUNTIL.expression);
+    // valor de la expresion
+    self->cpool.append(&self->cpool, O_POP);
+    self->cpool.append(&self->cpool, R7);
+
+    self->cpool.append(&self->cpool, O_JB);
+    self->cpool.append(&self->cpool, R5);
+    self->cpool.append(&self->cpool, R7);
+    cmp_addr = self->cpool.count;
+    self->cpool.append32(&self->cpool, 0); //Se parcheara mas adelante la direccion de salto
+
+    self->cpool.append(&self->cpool, O_PUSH);
+    self->cpool.append(&self->cpool, R7);
+
+    self->cpool.append(&self->cpool, O_PUSH);
+    self->cpool.append(&self->cpool, R6);
+
+    self->cpool.append(&self->cpool, O_PUSH);
+    self->cpool.append(&self->cpool, R5);
+
+    res = checkCompoundStmts(self, ast_foruntil->AST_FORUNTIL.statements);
+
+    self->cpool.append(&self->cpool, O_POP);
+    self->cpool.append(&self->cpool, R5);
+
+    self->cpool.append(&self->cpool, O_POP);
+    self->cpool.append(&self->cpool, R6);
+
+    self->cpool.append(&self->cpool, O_POP);
+    self->cpool.append(&self->cpool, R7);
+
+    self->cpool.append(&self->cpool, O_INC);
+    self->cpool.append(&self->cpool, R5);
+
+    self->cpool.append(&self->cpool, O_STOR);
+
+    self->cpool.append(&self->cpool, FORMAT_MEM_MODE(segment, 0)); // carga la direccion a guardar de un registro dado
+    self->cpool.append(&self->cpool, R5); // acumulador del iterador
+    self->cpool.append(&self->cpool, R6); // direccion en memoria del iterador
+
+
+    self->cpool.append(&self->cpool, O_JMP);
+    self->cpool.append32(&self->cpool, loop_addr);
+
+    end_loop_addr = self->cpool.count;
+
+    // Se parchea la direccion de salto del final del bucle
+    set32(&self->cpool, cmp_addr, end_loop_addr);
+
+
+    return res;
+}
+
+static AstTag checkStatement(MadaSemantic* self, Ast* ast_stmt)
+{
+    AstTag res = AST_NONE;
+
+    switch(ast_stmt->tag)
+    {
+        case AST_VARASSIGN:
+
+            res = checkVarAssign(self, ast_stmt, 0, NULL);
+
+            break;
+        case AST_FORUNTIL:
+
+            res = checkForUntil(self, ast_stmt);
+            break;
+        default:
+            break;
+    }
+
+    return res;
+}
+
+static AstTag checkCompoundStmts(MadaSemantic* self, Ast* ast_compound)
+{
+    AstTag res = AST_NONE;
+    List stmts = ast_compound->AST_COMPOUND_STMT.statements;
+    Ast* current_stmt = (Ast*)dequeueList(&stmts);
+
+    while(current_stmt)
+    {
+        res = checkStatement(self, current_stmt);
+        current_stmt = (Ast*)dequeueList(&stmts);
+    }
+
+    return res;
+}
+
+static AstTag checkCodeBlock(MadaSemantic* self, Ast* ast_codeblock)
+{
+    AstTag res = AST_NONE;
+
+    self->symTab.current_scope++;
+
+    res = checkCompoundStmts(self, ast_codeblock->AST_CODEBLOCK.compound_stmts);
+
+    self->symTab.current_scope--;
+
+    return res;
+}
+
+static AstTag checkVarBlock(MadaSemantic* self, Ast* ast_varblock)
+{
+    AstTag res = AST_NONE;
+    List vardecls = ast_varblock->AST_VARBLOCK.vardecls;
+    Ast* current_vardecl = (Ast*)dequeueList(&vardecls);
+
+    while(current_vardecl)
+    {
+        res = checkVarDecl(self, current_vardecl);
+        current_vardecl = (Ast*)dequeueList(&vardecls);
+    }
+
+    return res;
+}
+
+static AstTag checkAlgorithm(MadaSemantic* self, Ast* ast_alg)
+{
+    AstTag res =AST_NONE;
+
+    res = checkVarBlock(self, ast_alg->AST_ALG.varblock);
+    res = checkCodeBlock(self, ast_alg->AST_ALG.codeblock);
+
+    return res;
+}
+
 static void analyze(MadaSemantic* self)
 {
     self->parser.parse(&self->parser);
-    self->checkExpr(self, self->parser.ast);
+    checkAlgorithm(self, self->parser.ast);
 
+    //checkVarDecl(self, self->parser.ast);
     self->cpool.append(&self->cpool, O_SYSCALL);
     self->cpool.append(&self->cpool, S_PRINTINT);
     self->cpool.append(&self->cpool, O_SYSCALL);

@@ -15,7 +15,9 @@ enum ast_tag
     AST_VARDECL,
     AST_VARBLOCK,
     AST_VARASSIGN,
+    AST_FORUNTIL,
     AST_COMPOUND_STMT,
+    AST_CODEBLOCK,
     AST_ALG,
 
 };
@@ -41,9 +43,11 @@ typedef struct st_ast
         //Statements (sentencias)
         struct AST_VARDECL{ char* varname; MadaToken type;} AST_VARDECL;
         struct AST_VARBLOCK{ List vardecls; } AST_VARBLOCK;
-        struct AST_VARASSIGN{ char* varname;  struct st_ast* value_ast} AST_VARASSIGN;
+        struct AST_VARASSIGN{ char* varname;  struct st_ast* value_ast;} AST_VARASSIGN;
+        struct AST_FORUNTIL{ struct st_ast* iterator;  struct st_ast* expression; struct st_ast* statements;} AST_FORUNTIL;
         struct AST_COMPOUND_STMT{ List statements; } AST_COMPOUND_STMT;
-        struct AST_ALG{ struct st_ast* varblock; struct st_ast* compound_stmts; } AST_ALG;
+        struct AST_CODEBLOCK{ struct st_ast* compound_stmts; } AST_CODEBLOCK;
+        struct AST_ALG{ struct st_ast* varblock; struct st_ast* codeblock; } AST_ALG;
     };
 
 } Ast; // Abstract Syntax Tree
@@ -182,6 +186,7 @@ Ast* astVarDecl(MadaToken var_token, MadaToken type_token)
     Ast* ast_node = malloc(sizeof(Ast));
 
     ast_node->tag = AST_VARDECL;
+    ast_node->token = var_token;
     ast_node->AST_VARDECL.varname = var_token.val;
 
     ast_node->AST_VARDECL.type = type_token;
@@ -203,11 +208,24 @@ Ast* astVarAssign(MadaToken id_token, Ast* value_ast)
 {
      Ast* ast_node = malloc(sizeof(Ast));
      ast_node->tag = AST_VARASSIGN;
+     ast_node->token = id_token;
 
      ast_node->AST_VARASSIGN.varname = id_token.val;
      ast_node->AST_VARASSIGN.value_ast = value_ast;
 
      return ast_node;
+}
+
+Ast* astForUntil(Ast* iterator, Ast* expr, Ast* stmts)
+{
+    Ast* ast_node = malloc(sizeof(Ast));
+    ast_node->tag = AST_FORUNTIL;
+
+    ast_node->AST_FORUNTIL.iterator = iterator;
+    ast_node->AST_FORUNTIL.expression = expr;
+    ast_node->AST_FORUNTIL.statements = stmts;
+
+    return ast_node;
 }
 
 Ast* astCompoundStmt(List statements)
@@ -220,21 +238,67 @@ Ast* astCompoundStmt(List statements)
     return ast_node;
 }
 
-Ast* astAlgorithm(Ast* varblock, Ast* compound_stmts)
+Ast* astCodeBlock(Ast* compound_stmt)
+{
+    Ast* ast_node = malloc(sizeof(Ast));
+    ast_node->tag = AST_CODEBLOCK;
+
+    ast_node->AST_CODEBLOCK.compound_stmts = compound_stmt;
+    return ast_node;
+}
+
+Ast* astAlgorithm(Ast* varblock, Ast* codeblock)
 {
     Ast* ast_node = malloc(sizeof(Ast));
     ast_node->tag = AST_ALG;
 
     ast_node->AST_ALG.varblock = varblock;
-    ast_node->AST_ALG.compound_stmts = compound_stmts;
+    ast_node->AST_ALG.codeblock = codeblock;
 
     return ast_node;
 }
 
 void destroyAstNode(Ast* ast_node)
 {
+    Ast* acum = NULL, *del=NULL;
+    ListIterator it;
+
     switch(ast_node->tag)
     {
+        case AST_ALG:
+
+            destroyAstNode(ast_node->AST_ALG.varblock);
+            free(ast_node->AST_ALG.varblock);
+
+            destroyAstNode(ast_node->AST_ALG.codeblock);
+            free(ast_node->AST_ALG.codeblock);
+
+            break;
+        case AST_CODEBLOCK:
+
+            destroyAstNode(ast_node->AST_CODEBLOCK.compound_stmts);
+            free(ast_node);
+
+            break;
+        case AST_FORUNTIL:
+
+            destroyAstNode(ast_node->AST_FORUNTIL.iterator);
+            free(ast_node->AST_FORUNTIL.iterator);
+
+            destroyAstNode(ast_node->AST_FORUNTIL.expression);
+            free(ast_node->AST_FORUNTIL.expression);
+
+            destroyAstNode(ast_node->AST_FORUNTIL.statements);
+            free(ast_node->AST_FORUNTIL.statements);
+            break;
+        case AST_VARASSIGN:
+
+            destroyMadaToken(&ast_node->token);
+
+            destroyAstNode(ast_node->AST_VARASSIGN.value_ast);
+            free(ast_node->AST_VARASSIGN.value_ast);
+
+            break;
         case AST_BINOP:
 
             destroyAstNode(ast_node->AST_BINOP.left);
@@ -252,6 +316,7 @@ void destroyAstNode(Ast* ast_node)
 
             destroyMadaToken(&ast_node->token);
             break;
+        case AST_VARDECL:
         case AST_INTEGER:
         case AST_REAL:
         case AST_BOOL:
@@ -264,8 +329,36 @@ void destroyAstNode(Ast* ast_node)
 
 void printAst(Ast* ast_root, int level)
 {
+    Ast* acum = NULL;
+    ListIterator it;
+
     switch(ast_root->tag)
     {
+        case AST_ALG:
+            printf("%*cALGORITMO\n", level, ' ');
+
+            printAst(ast_root->AST_ALG.varblock, level+2);
+            printAst(ast_root->AST_ALG.codeblock, level+2);
+            break;
+        case AST_VARBLOCK:
+            initListIterator(&it, ast_root->AST_VARBLOCK.vardecls);
+
+            acum = iterateList(&it);
+            while(acum)
+            {
+                printAst(acum, level+2);
+                acum = iterateList(&it);
+            }
+            break;
+        case AST_VARDECL:
+            break;
+        case AST_COMPOUND_STMT:
+            break;
+        case AST_CODEBLOCK:
+
+            break;
+        case AST_VARASSIGN:
+            break;
         case AST_BINOP:
 
             printf("%*cOPERACION BINARIA: %s\n", level, ' ', str_tok[ast_root->AST_BINOP.op]);
